@@ -13,7 +13,8 @@
 char * can_iface_ptr = "can0";	
 int serveur_running;
 CServerTcpIP *this = NULL;
-char *nom;
+
+char fileName[256];
 
 
 /*
@@ -22,8 +23,8 @@ char *nom;
 void initXML(){
 
 	FILE* xml = NULL;
-	if(fopen((const char *)nom, "r")==NULL){	//si can.xml n'existe pas
-		xml = fopen((const char *)nom, "a");	//le créer
+	if(fopen((const char *)fileName, "r")==NULL){	//si le fichier n'existe pas
+		xml = fopen((const char *)fileName, "a");	//le créer
 		if (xml != NULL){
 			fputs("<?xml version=\"1.0\" encoding=\"UTF-8\"?>", xml);
 			fprintf(xml, "<%s>",can_iface_ptr);
@@ -65,30 +66,76 @@ void protocole (char *buffer, unsigned int buffer_size, CServerTcpIP *this, Clie
 		
 		char	*separateur = "-\n";     //séparateurs
 		char    *Chaine_Entrante;
+		char 	*nom;
 		
 		nom = malloc (sizeof (*nom) * 256);
-		
+
 		Chaine_Entrante = strdup(buffer);	// /!\ génere une malloc
 		nom = strtok(Chaine_Entrante, separateur);
 		nom = strtok(NULL, separateur);
-		printf("%s\n",nom);		
+		strncpy(fileName, nom, sizeof(fileName));
+		fileName[sizeof(fileName) - 1] = '\0';
+		printf("%s\n",fileName);		
 		initXML();
 
 		free(Chaine_Entrante);
 
-
 		/* Initialisation CAN*/
 		void dump(CServerTcpIP *this, struct can_frame cf);
-	
-		if(can_init(can_iface_ptr)){
-			printf("Il y a eu un erreur a l'init du CAN\n");
-			exit(1);
-		}
+		//if(can_isok() == 0){
+			if(can_init(can_iface_ptr)){
+				printf("Il y a eu un erreur a l'init du CAN\n");
+				exit(1);
+			}
+		//}
 		if(can_bind_receive(0x000, 0x000, NULL, 0, dump)){
 			fprintf(stderr, "Erreur au bind de reception\n");
 		}
-	}	
+	}
 
+	if (strncmp ("cansend", buffer, 7) == 0) {
+		
+		
+		char	*separateur = " #\n";     //séparateurs
+		char    *Chaine_Entrante;
+		char 	*trame;
+		struct 	can_frame msg;
+		int 	i, j;
+		char	data[3];
+		
+		j =0;
+		trame = malloc (sizeof (*trame) * 256);
+		
+		Chaine_Entrante = strdup(buffer);	// /!\ génere une malloc
+		trame = strtok(Chaine_Entrante, separateur);
+		if(trame != NULL){
+			trame = strtok(NULL, separateur);
+			printf("%s\n",trame);	
+			msg.can_id = (int)strtol(trame, NULL, 16);
+		}
+		
+		if(trame != NULL){
+			trame = strtok(NULL, separateur);
+			for(i=0;i<strlen(trame);i+=2){
+				sprintf(data, "%c%c", trame[i], trame[i+1]);
+				msg.data[j] = (int)strtol(data, NULL, 16);				
+				printf("%s\n",data);
+				j++;
+			}
+		}
+		
+		msg.can_dlc = (strlen(trame)-1)/2+(strlen(trame)-1)%2;	
+
+		free(Chaine_Entrante);
+		if(can_isok() == 0){
+			if(can_init(can_iface_ptr)){
+				printf("Il y a eu un erreur a l'init du CAN\n");
+				exit(1);
+			}
+		}
+		can_send (msg);
+			
+	}	
 	if (strncmp ("stop", buffer, 4) == 0) {
 		can_close();
 	}	
@@ -112,7 +159,7 @@ void onConnect (CServerTcpIP *this, Client *from, void *pdata){
 
 void ecrireXML(char *trame){
 	FILE* xml = NULL;
-	xml = fopen((const char *)nom, "r+");		
+	xml = fopen((const char *)fileName, "r+");		
 	if (xml != NULL){
 		/* Permet de sauvegerder la fermeture de la balise racine*/
 
@@ -146,8 +193,8 @@ void afficheTrame(struct can_frame cf){
 
 void dump(CServerTcpIP *this, struct can_frame cf){
 	int i = 0;
-	char *trame = malloc (sizeof (*trame) * 1024);
-	char *temp = malloc (sizeof (*temp) * 1024);	
+	char *trame = malloc (sizeof (*trame) * 2048);
+	char *temp = malloc (sizeof (*temp) * 2048);	
 	
 		
 	//sprintf(trame, "reception CAN ok \n");	
@@ -189,6 +236,7 @@ int main(int argc, char * argv[]){
 	signal(SIGHUP, sigterm);	//Fin de connection
 	signal(SIGINT, sigterm); 	//Ctrl-C
 
+	
 
 	/* Initialisation Serveur TCP*/
 	int ret;
@@ -221,9 +269,15 @@ int main(int argc, char * argv[]){
 	serveur_running = 1;
 	while(serveur_running){
 		sleep(5);
+		//printf("Hello World\n");
 		//this->Send (this, NULL, "Connection OK !\n", sizeof ("Connection OK !\n") -1);
 	}
-	can_close();
+	/* 
+	 * Ferme le socket can si il est ouvert
+	 */	
+	if(can_isok() == 1){
+		can_close();
+	}
 	this->Free (this);
 	//free(nom);
 
