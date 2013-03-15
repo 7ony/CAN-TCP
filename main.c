@@ -14,7 +14,7 @@ char * can_iface_ptr = "can0";
 int serveur_running;
 CServerTcpIP *this = NULL;
 
-char fileName[256];
+char fileRep[256];
 
 
 /*
@@ -23,8 +23,8 @@ char fileName[256];
 void initXML(){
 
 	FILE* xml = NULL;
-	if(fopen((const char *)fileName, "r")==NULL){	//si le fichier n'existe pas
-		xml = fopen((const char *)fileName, "a");	//le créer
+	if(fopen((const char *)fileRep, "r")==NULL){	//si le fichier n'existe pas
+		xml = fopen((const char *)fileRep, "a");	//le créer
 		if (xml != NULL){
 			fputs("<?xml version=\"1.0\" encoding=\"UTF-8\"?>", xml);
 			fprintf(xml, "<%s>",can_iface_ptr);
@@ -73,9 +73,10 @@ void protocole (char *buffer, unsigned int buffer_size, CServerTcpIP *this, Clie
 		Chaine_Entrante = strdup(buffer);	// /!\ génere une malloc
 		nom = strtok(Chaine_Entrante, separateur);
 		nom = strtok(NULL, separateur);
-		strncpy(fileName, nom, sizeof(fileName));
-		fileName[sizeof(fileName) - 1] = '\0';
-		printf("%s\n",fileName);		
+		//strncpy(fileRep, nom, sizeof(fileRep));
+		//fileRep[sizeof(fileRep) - 1] = '\0';
+		sprintf(fileRep, "/home/pi/xml/%s",nom);
+		printf("Répertoire du fichier : %s\n",fileRep);		
 		initXML();
 
 		free(Chaine_Entrante);
@@ -159,7 +160,7 @@ void onConnect (CServerTcpIP *this, Client *from, void *pdata){
 
 void ecrireXML(char *trame){
 	FILE* xml = NULL;
-	xml = fopen((const char *)fileName, "r+");		
+	xml = fopen((const char *)fileRep, "r+");		
 	if (xml != NULL){
 		/* Permet de sauvegerder la fermeture de la balise racine*/
 
