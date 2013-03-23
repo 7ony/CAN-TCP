@@ -10,7 +10,7 @@
 #include "debug.h"
 
 
-char * can_iface_ptr = "can0";	
+const char * can_iface_ptr = "can0";	
 int serveur_running;
 CServerTcpIP *this = NULL;
 
@@ -48,112 +48,6 @@ char *timestamp(){
 	return timestamp;
 }
 
-
-
-/*
- * Fuction called back when TCP/IP Server received data
- */
-void protocole (char *buffer, unsigned int buffer_size, CServerTcpIP *this, Client *expediteur, void *private_data){
-	DEBUG_INFO ("Client %s:%d\n", expediteur->adresseIP, expediteur->port);
-	DEBUG_INFO ("%d octets recu : %s\n", buffer_size, buffer);
-
-	/* Echo */
-	//this->Send (this, expediteur, buffer, buffer_size);
-	//printf("Date : %d\n", timestamp());
-
-	if (strncmp ("enregistrer", buffer, 11) == 0) {
-		
-		
-		char	*separateur = "-\n";     //séparateurs
-		char    *Chaine_Entrante;
-		char 	*nom;
-		
-		nom = malloc (sizeof (*nom) * 256);
-
-		Chaine_Entrante = strdup(buffer);	// /!\ génere une malloc
-		nom = strtok(Chaine_Entrante, separateur);
-		nom = strtok(NULL, separateur);
-		//strncpy(fileRep, nom, sizeof(fileRep));
-		//fileRep[sizeof(fileRep) - 1] = '\0';
-		sprintf(fileRep, "/home/pi/xml/%s",nom);
-		printf("Répertoire du fichier : %s\n",fileRep);		
-		initXML();
-
-		free(Chaine_Entrante);
-
-		/* Initialisation CAN*/
-		void dump(CServerTcpIP *this, struct can_frame cf);
-		//if(can_isok() == 0){
-			if(can_init(can_iface_ptr)){
-				printf("Il y a eu un erreur a l'init du CAN\n");
-				exit(1);
-			}
-		//}
-		if(can_bind_receive(0x000, 0x000, NULL, 0, dump)){
-			fprintf(stderr, "Erreur au bind de reception\n");
-		}
-	}
-
-	if (strncmp ("cansend", buffer, 7) == 0) {
-		
-		
-		char	*separateur = " #\n";     //séparateurs
-		char    *Chaine_Entrante;
-		char 	*trame;
-		struct 	can_frame msg;
-		int 	i, j;
-		char	data[3];
-		
-		j =0;
-		trame = malloc (sizeof (*trame) * 256);
-		
-		Chaine_Entrante = strdup(buffer);	// /!\ génere une malloc
-		trame = strtok(Chaine_Entrante, separateur);
-		if(trame != NULL){
-			trame = strtok(NULL, separateur);
-			printf("%s\n",trame);	
-			msg.can_id = (int)strtol(trame, NULL, 16);
-		}
-		
-		if(trame != NULL){
-			trame = strtok(NULL, separateur);
-			for(i=0;i<strlen(trame);i+=2){
-				sprintf(data, "%c%c", trame[i], trame[i+1]);
-				msg.data[j] = (int)strtol(data, NULL, 16);				
-				printf("%s\n",data);
-				j++;
-			}
-		}
-		
-		msg.can_dlc = (strlen(trame)-1)/2+(strlen(trame)-1)%2;	
-
-		free(Chaine_Entrante);
-		if(can_isok() == 0){
-			if(can_init(can_iface_ptr)){
-				printf("Il y a eu un erreur a l'init du CAN\n");
-				exit(1);
-			}
-		}
-		can_send (msg);
-			
-	}	
-	if (strncmp ("stop", buffer, 4) == 0) {
-		can_close();
-	}	
-
-	/* Quit if receive 'exit' from a client */
-	if (strncmp ("exit", buffer, 4) == 0) {
-		this->Send (this, expediteur, "Bye bye !\n", sizeof ("Bye bye !\n") -1);
-		serveur_running = 0;
-	}
-}
-
-void onConnect (CServerTcpIP *this, Client *from, void *pdata){
-	DEBUG_INFO ("New client %s:%d\n", from->adresseIP, from->port);
-}
-
-
-
 /*
  *	Mettre a jour le fichier can.xml
  */
@@ -187,12 +81,11 @@ void afficheTrame(struct can_frame cf){
 		printf("%X ",cf.data[i]);
 	}
 }
-
 /*
- * Fonction de callback appeler lors de la récéption d'une trame CAN
+ * Converti une trame CAN au format XML 
  */
 
-void dump(CServerTcpIP *this, struct can_frame cf){
+void parseXML(CServerTcpIP *this, struct can_frame cf){
 	int i = 0;
 	char *trame = malloc (sizeof (*trame) * 2048);
 	char *temp = malloc (sizeof (*temp) * 2048);	
@@ -211,7 +104,14 @@ void dump(CServerTcpIP *this, struct can_frame cf){
 	strcat(trame, temp);
 	memset (temp, 0, sizeof (temp));
 	
+
+	//Sauvegarde la trame courante dans le fichier XML
 	ecrireXML(trame);
+
+	/*
+ 	 * Pour l"envoi en TCP
+ 	 */
+
 	//prologue et rajout des balise racines
 	sprintf(temp, "<?xml version=\"1.0\" encoding=\"UTF-8\"?><%s>%s</%s>\n", can_iface_ptr, trame, can_iface_ptr); 
 	strcpy(trame, temp);
@@ -219,7 +119,129 @@ void dump(CServerTcpIP *this, struct can_frame cf){
 	this->Send (this, NULL, trame, strlen(trame));
 	free(temp);
 	free(trame);
-	//this->Send (this, NULL, "reception CAN ok \n", sizeof ("reception CAN ok \n")-1);
+}
+
+
+/*
+ * Fuction called back when TCP/IP Server received data
+ */
+void protocole (char *buffer, unsigned int buffer_size, CServerTcpIP *this, Client *expediteur, void *private_data){
+	DEBUG_INFO ("Client %s:%d\n", expediteur->adresseIP, expediteur->port);
+	DEBUG_INFO ("%d octets recu : %s\n", buffer_size, buffer);
+
+	/* Echo */
+	//this->Send (this, expediteur, buffer, buffer_size);
+	//printf("Date : %d\n", timestamp());
+	
+	/* Enregistre le trafic CAN dans un fichier XML et envoi TCP */
+
+	if (strncmp ("enregistrer", buffer, 11) == 0) {
+		
+		
+		char	*separateur = "-\n";     //séparateurs
+		char    *Chaine_Entrante;
+		char 	*nom;
+		
+		nom = malloc (sizeof (*nom) * 256);
+
+		Chaine_Entrante = strdup(buffer);	// /!\ génere une malloc
+		nom = strtok(Chaine_Entrante, separateur);
+		nom = strtok(NULL, separateur);
+		//strncpy(fileRep, nom, sizeof(fileRep));
+		//fileRep[sizeof(fileRep) - 1] = '\0';
+		sprintf(fileRep, "/home/pi/xml/%s",nom);
+		printf("Répertoire du fichier : %s\n",fileRep);		
+		initXML();
+
+		free(Chaine_Entrante);
+
+		/* Initialisation CAN*/
+		if(can_isok() == 1){
+			can_close();
+		}
+		void dump(CServerTcpIP *this, struct can_frame cf);
+		
+		if(can_init(can_iface_ptr)){
+			printf("Il y a eu un erreur a l'init du CAN\n");
+			exit(1);
+		}
+		if(can_bind_receive(0x000, 0x000, NULL, 0, dump)){
+			fprintf(stderr, "Erreur au bind de reception\n");
+		}
+	}
+	
+	/* Envoi une trame sur le bus CAN */
+
+	if (strncmp ("cansend", buffer, 7) == 0) {
+		
+		
+		char	*separateur = " #\n";     //séparateurs
+		char    *Chaine_Entrante;
+		char 	*trame;
+		struct 	can_frame msg;
+		int 	i, j;
+		char	data[3];
+		
+		j =0;
+		trame = malloc (sizeof (*trame) * 256);
+		
+		Chaine_Entrante = strdup(buffer);	// /!\ génere une malloc
+		trame = strtok(Chaine_Entrante, separateur);
+		if(trame != NULL){
+			trame = strtok(NULL, separateur);
+			//printf("%s\n",trame);	
+			msg.can_id = (int)strtol(trame, NULL, 16);
+		}
+		
+		if(trame != NULL){
+			trame = strtok(NULL, separateur);
+			for(i=0;i<strlen(trame);i+=2){
+				sprintf(data, "%c%c", trame[i], trame[i+1]);
+				msg.data[j] = (int)strtol(data, NULL, 16);				
+				//printf("%s\n",data);
+				j++;
+			}
+		}
+		
+		msg.can_dlc = (strlen(trame)-1)/2+(strlen(trame)-1)%2;	
+
+		free(Chaine_Entrante);
+		if(can_isok() == 0){
+			if(can_init(can_iface_ptr)){
+				printf("Il y a eu un erreur a l'init du CAN\n");
+				exit(1);
+			}
+		}
+		can_send (msg);
+		parseXML(this, msg);
+			
+	}
+	
+	/* Ferme le socket CAN */
+
+	if (strncmp ("stop", buffer, 4) == 0) {
+		can_close();
+	}	
+
+	/* Quit if receive 'exit' from a client */
+	if (strncmp ("exit", buffer, 4) == 0) {
+		this->Send (this, expediteur, "Bye bye !\n", sizeof ("Bye bye !\n") -1);
+		serveur_running = 0;
+	}
+}
+
+void onConnect (CServerTcpIP *this, Client *from, void *pdata){
+	DEBUG_INFO ("New client %s:%d\n", from->adresseIP, from->port);
+}
+
+/*
+ * Fonction de callback appeler lors de la récéption d'une trame CAN
+ */
+
+void dump(CServerTcpIP *this, struct can_frame cf){
+	if(cf.can_id != 0){		
+		parseXML(this, cf);
+	}
 }
 
 void sigterm(int signo)
